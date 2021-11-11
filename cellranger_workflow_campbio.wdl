@@ -1,7 +1,8 @@
 version 1.0
 
 import "https://api.firecloud.org/ga4gh/v1/tools/cumulus:cellranger_mkfastq/versions/12/plain-WDL/descriptor" as crm
-import "https://api.firecloud.org/ga4gh/v1/tools/cumulus:cellranger_count/versions/10/plain-WDL/descriptor" as crc
+#import "https://api.firecloud.org/ga4gh/v1/tools/cumulus:cellranger_count/versions/10/plain-WDL/descriptor" as crc
+import "https://api.firecloud.org/ga4gh/v1/tools/cellranger_count_campbio:cellranger_count_campbio/versions/1/plain-WDL/descriptor" as crc
 import "https://api.firecloud.org/ga4gh/v1/tools/cumulus:cellranger_multi/versions/2/plain-WDL/descriptor" as crmulti
 import "https://api.firecloud.org/ga4gh/v1/tools/cumulus:cellranger_vdj/versions/9/plain-WDL/descriptor" as crv
 import "https://api.firecloud.org/ga4gh/v1/tools/cumulus:cumulus_adt/versions/8/plain-WDL/descriptor" as ca
@@ -245,6 +246,7 @@ workflow cellranger_workflow {
                 call crc.cellranger_count as cellranger_count {
                     input:
                         sample_id = sample_id,
+                        output_id = generate_count_config.sample2ID[sample_id],
                         input_fastqs_directories = generate_count_config.sample2dir[sample_id],
                         output_directory = output_directory_stripped,
                         genome = generate_count_config.sample2genome[sample_id],
@@ -427,6 +429,7 @@ workflow cellranger_workflow {
                 call crc.cellranger_count as cellranger_count_fbc {
                     input:
                         sample_id = link_id,
+                        output_id = generate_count_config.sample2ID[link_id],
                         input_samples = generate_count_config.link2sample[link_id],
                         input_fastqs_directories = generate_count_config.sample2dir[link_id],
                         input_data_types = generate_count_config.sample2datatype[link_id],
@@ -461,7 +464,7 @@ workflow cellranger_workflow {
     }
 
     output {
-        String? count_matrix = generate_count_config.count_matrix
+        File count_matrix = generate_count_config.count_matrix
     }
 }
 
@@ -613,10 +616,10 @@ task generate_count_config {
              open('sample2dir.txt', 'w') as foo1, open('sample2datatype.txt', 'w') as foo2, open('sample2genome.txt', 'w') as foo3, \
              open('sample2chemistry.txt', 'w') as foo4, open('sample2fbf.txt', 'w') as foo5, open('count_matrix.csv', 'w') as foo6, \
              open('link_arc_ids.txt', 'w') as fo5, open('link_multi_ids.txt', 'w') as fo6, open('link_fbc_ids.txt', 'w') as fo7, \
-             open('link2sample.txt', 'w') as foo7:
+             open('link2sample.txt', 'w') as foo7, open('sample2id.txt', 'w') as foo8:
 
-            n_ref = n_chem = n_fbf = n_link = 0 # this mappings can be empty
-            foo6.write('Sample,Location,Bam,BamIndex,Barcodes,Reference,Chemistry\n') # count_matrix.csv
+            n_ref = n_chem = n_fbf = n_link = n_oid = 0 # this mappings can be empty
+            foo6.write('Sample,OutputID,Location,Bam,BamIndex,Barcodes,Reference,Chemistry\n') # count_matrix.csv
             datatype2fo = dict([('rna', fo1), ('vdj', fo2), ('adt', fo3), ('citeseq', fo3), ('hashing', fo3), ('cmo', fo3), ('crispr', fo3), ('atac', fo4)])
 
             multiomics = defaultdict(set)
@@ -645,6 +648,17 @@ task generate_count_config {
                         print("Detected multiple references for sample " + sample_id + "!", file = sys.stderr)
                         sys.exit(1)
                     reference = df_local['Reference'].iat[0]
+
+                ## adding output ID as one of the feature
+                outputID = 'null'
+                if datatype in ['rna', 'vdj', 'atac']:
+                    if df_local['Output_ID'].unique().size > 1:
+                        print("Detected multiple OutputID for sample " + sample_id + "!", file = sys.stderr)
+                        sys.exit(1)
+                    if df_local['Output_ID'].unique() is not None:
+                        outputID = df_local['Output_ID'].iat[0]
+                    else:
+                        outputID = sample_id ### if user not supply outputID, treat it the same as sample_id
 
                 feature_barcode_file = 'null'
                 if datatype in ['rna', 'adt', 'citeseq', 'hashing', 'cmo', 'crispr']:
@@ -687,6 +701,11 @@ task generate_count_config {
                     foo3.write(sample_id + '\t' + reference + '\n')
                     n_ref += 1
 
+                ### add OutputID
+                if outputID != 'null':
+                    foo8.write(sample_id + '\t' + outputID + '\n')
+                    n_oid += 1
+
                 if feature_barcode_file != 'null':
                     foo5.write(sample_id + '\t' + feature_barcode_file + '\n')
                     n_fbf += 1
@@ -702,12 +721,12 @@ task generate_count_config {
                     n_chem += 1
 
                 if datatype == 'rna':
-                    prefix = '~{output_dir}/' + sample_id
+                    prefix = '~{output_dir}/' + outputID #sample_id
                     bam = prefix + '/possorted_genome_bam.bam'
                     bai = prefix + '/possorted_genome_bam.bam.bai'
                     count_matrix = prefix + '/filtered_feature_bc_matrix.h5' # assume cellranger version >= 3.0.0
                     barcodes = prefix + '/filtered_feature_bc_matrix/barcodes.tsv.gz'
-                    foo6.write(sample_id + ',' + count_matrix + ',' + bam + ',' + bai + ',' + barcodes + ',' + reference + ',' + chemistry + '\n')
+                    foo6.write(sample_id + ',' + outputID + ',' + count_matrix + ',' + bam + ',' + bai + ',' + barcodes + ',' + reference + ',' + chemistry + '\n')
 
             for link_id in multiomics.keys():
                 n_link += 1
@@ -755,7 +774,10 @@ task generate_count_config {
                 foo5.write('null\tnull\n')
             if n_link == 0:
                 foo7.write('null\tnull\n')
+            if n_oid == 0:
+                foo8.write('null\tnull\n')
         CODE
+        gsutil -m cp count_matrix.csv ~{output_dir}/
     }
 
     output {
@@ -771,6 +793,7 @@ task generate_count_config {
         Map[String, String] sample2genome = read_map('sample2genome.txt')
         Map[String, String] sample2chemistry = read_map('sample2chemistry.txt')
         Map[String, String] sample2fbf = read_map('sample2fbf.txt')
+        Map[String, String] sample2ID = read_map('sample2id.txt')
         Map[String, String] link2sample = read_map('link2sample.txt')
         File count_matrix = "count_matrix.csv"
     }
