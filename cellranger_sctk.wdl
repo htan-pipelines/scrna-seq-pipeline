@@ -1,7 +1,7 @@
 version 1.0
 
-import "https://api.firecloud.org/ga4gh/v1/tools/cumulus:cellranger_workflow/versions/26/plain-WDL/descriptor" as crwf
-import "https://api.firecloud.org/ga4gh/v1/tools/test_manifest_file:test_manifest_file/versions/60/plain-WDL/descriptor" as HTAN_meta
+import "https://api.firecloud.org/ga4gh/v1/tools/cellranger_workflow_campbio:cellranger_workflow_campbio/versions/2/plain-WDL/descriptor" as crwf
+import "https://api.firecloud.org/ga4gh/v1/tools/test_manifest_file:test_manifest_file/versions/62/plain-WDL/descriptor" as HTAN_meta
 
 workflow cellranger_sctk {
 	input {
@@ -233,9 +233,9 @@ task parseCSV {
 		df = pd.read_csv(mat_file, header = 0, dtype=str)
 		df['filterFolder'] = df['Location'].apply(lambda x: os.path.dirname(x) + "/filtered_feature_bc_matrix/")
 		df['rawFolder'] = df['Location'].apply(lambda x: os.path.dirname(x) + "/raw_feature_bc_matrix/")
-		df.loc[:, ['Sample', 'rawFolder']].to_csv('sample2RawDir.txt',sep="\t", index=False, header=False)
-		df.loc[:, ['Sample', 'filterFolder']].to_csv('sample2FilterDir.txt',sep="\t", index=False, header=False)
-		df['Sample'].to_csv('sampleName.txt', index=False, header=False)
+		df.loc[:, ['OutputID', 'rawFolder']].to_csv('sample2RawDir.txt',sep="\t", index=False, header=False)
+		df.loc[:, ['OutputID', 'filterFolder']].to_csv('sample2FilterDir.txt',sep="\t", index=False, header=False)
+		df['OutputID'].to_csv('sampleName.txt', index=False, header=False)
 		df.to_csv('df_forDebug.csv', index=True, header=True)
 		os.system("gsutil -q -m cp df_forDebug.csv ~{cumulus_outupt_dir}")
 		print("Done parseCSV step")
@@ -300,7 +300,7 @@ task sctkqc {
 		-M ~{detectMitoLevel} \
 		-E ~{mitoType}
 		echo $(date +%T)
-		mv ./*.html ./~{Sample}_QCOut
+		#mv ./*.html ./~{Sample}_QCOut
 		gsutil -m cp -r ./~{Sample}_QCOut ~{output_directory}
 		echo "Done sctk-qc step"
 		echo $(date +%T)
