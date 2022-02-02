@@ -127,12 +127,12 @@ task run_cellranger_count {
         monitor_script.sh > monitoring.log &
         mkdir -p genome_dir
         tar xf ~{genome_file} -C genome_dir --strip-components 1
-
         python <<CODE
         import re
         import os
         import sys
-        from subprocess import check_call
+        import glob
+        from subprocess import check_call, PIPE, run 
         from packaging import version
 
         samples = data_types = fbfs = None
@@ -195,9 +195,14 @@ task run_cellranger_count {
                         sys.exit(1)
                     fout.write(os.path.abspath(fastqs) + ',' + samples[i] + ',' + feature_type + '\n')
         else:
+            def md5_checksum(command):
+                result = run(command, stdout=PIPE, stderr=PIPE, universal_newlines=True)
+                md5_out = result.stdout.split('\n')[:-1]
+                return md5_out
+
             for i, directory in enumerate('~{input_fastqs_directories}'.split(',')):
                 # test whether the directory exists on the bucket. Case in HTAN scRNA-seq pilot data
-                os.system(' '.join(['gsutil', '-q', 'ls', '-d', directory, '; echo$? > check_folder.txt']))
+                os.system(' '.join(['gsutil', '-q', 'ls', '-d', directory, '; echo $? > check_folder.txt']))
                 with open('check_folder.txt', 'r') as f:
                     folder_exist = f.readline().strip() == '0'
 
@@ -215,6 +220,14 @@ task run_cellranger_count {
                 print(' '.join(call_args))
                 check_call(call_args)
                 fastqs_dirs.append('~{sample_id}_' + str(i))
+
+                # calculate md5 for fastq files
+                call_args = ['md5sum'] + glob.glob('./~{sample_id}_' + str(i) + '/*R2*.fastq.gz')
+                print(' '.join(call_args))
+                md5_out = md5_checksum(call_args)
+                with open('level1.md5', 'w') as f:
+                    for i in md5_out:
+                        f.write(i+'\n')
 
         call_args = ['cellranger', 'count', '--id=~{output_id}', '--transcriptome=genome_dir', '--chemistry=~{chemistry}', '--jobmode=local']
 
@@ -243,16 +256,33 @@ task run_cellranger_count {
             call_args.append('--nosecondary')
         print(' '.join(call_args))
         check_call(call_args)
-        CODE
 
-        gsutil -q -m rsync -d -r "~{output_id}"/outs "~{output_directory}"/~{output_id}
+        # move the level1.md5 to the output directory
+        call_args = ['mv', 'level1.md5', '~{output_id}/outs']
+        print(' '.join(call_args))
+        check_call(call_args)
+        
+        # generate md5 for level2 bam file
+        call_args = ['md5sum'] + glob.glob('~{output_id}/outs/*.bam')
+        print(' '.join(call_args))
+        md5_out = md5_checksum(call_args)
+        with open('level2.md5', 'w') as g:
+            for i in md5_out:
+                g.write(i+'\n')
+
+        call_args = ['mv', 'level2.md5', '~{output_id}/outs']
+        print(' '.join(call_args))
+        check_call(call_args)
+
+        CODE
+        gsutil -q -m rsync -d -r "~{output_id}"/outs "~{output_directory}/~{output_id}/cellranger_~{cellranger_version}"
         # cp -r results/outs "~{output_directory}"/~{sample_id}
     }
 
     output {
-        String output_count_directory = "~{output_directory}/~{output_id}"
-        String output_metrics_summary = "~{output_directory}/~{output_id}/metrics_summary.csv"
-        String output_web_summary = "~{output_directory}/~{output_id}/web_summary.html"
+        String output_count_directory = "~{output_directory}/~{output_id}/cellranger_~{cellranger_version}"
+        String output_metrics_summary = "~{output_directory}/~{output_id}/cellranger_~{cellranger_version}/metrics_summary.csv"
+        String output_web_summary = "~{output_directory}/~{output_id}/cellranger_~{cellranger_version}/web_summary.html"
         File monitoringLog = "monitoring.log"
     }
 

@@ -2,7 +2,7 @@ version 1.0
 
 import "https://api.firecloud.org/ga4gh/v1/tools/cumulus:cellranger_mkfastq/versions/12/plain-WDL/descriptor" as crm
 #import "https://api.firecloud.org/ga4gh/v1/tools/cumulus:cellranger_count/versions/10/plain-WDL/descriptor" as crc
-import "https://api.firecloud.org/ga4gh/v1/tools/cellranger_count_campbio:cellranger_count_campbio/versions/1/plain-WDL/descriptor" as crc
+import "https://api.firecloud.org/ga4gh/v1/tools/cellranger_count_campbio:cellranger_count_campbio/versions/21/plain-WDL/descriptor" as crc
 import "https://api.firecloud.org/ga4gh/v1/tools/cumulus:cellranger_multi/versions/2/plain-WDL/descriptor" as crmulti
 import "https://api.firecloud.org/ga4gh/v1/tools/cumulus:cellranger_vdj/versions/9/plain-WDL/descriptor" as crv
 import "https://api.firecloud.org/ga4gh/v1/tools/cumulus:cumulus_adt/versions/8/plain-WDL/descriptor" as ca
@@ -238,6 +238,7 @@ workflow cellranger_workflow {
                 config_version = config_version,
                 zones = zones,
                 preemptible = preemptible,
+                cellranger_version = cellranger_version,
                 docker_registry = docker_registry_stripped
         }
 
@@ -464,7 +465,7 @@ workflow cellranger_workflow {
     }
 
     output {
-        File count_matrix = generate_count_config.count_matrix
+        File? count_matrix = generate_count_config.count_matrix
     }
 }
 
@@ -555,6 +556,7 @@ task generate_count_config {
         Array[String]? fastq_dirs_atac
         Array[String]? fastq_dirs_arc
         String config_version
+        String cellranger_version
         String zones
         Int preemptible
         String docker_registry
@@ -721,7 +723,7 @@ task generate_count_config {
                     n_chem += 1
 
                 if datatype == 'rna':
-                    prefix = '~{output_dir}/' + outputID #sample_id
+                    prefix = '~{output_dir}/' + outputID + '/cellranger_~{cellranger_version}'#sample_id
                     bam = prefix + '/possorted_genome_bam.bam'
                     bai = prefix + '/possorted_genome_bam.bam.bai'
                     count_matrix = prefix + '/filtered_feature_bc_matrix.h5' # assume cellranger version >= 3.0.0
@@ -777,7 +779,7 @@ task generate_count_config {
             if n_oid == 0:
                 foo8.write('null\tnull\n')
         CODE
-        gsutil -m cp count_matrix.csv ~{output_dir}/
+        #gsutil -m cp ≈ ~{output_dir}/
     }
 
     output {

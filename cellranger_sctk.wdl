@@ -1,7 +1,7 @@
 version 1.0
 
-import "https://api.firecloud.org/ga4gh/v1/tools/cellranger_workflow_campbio:cellranger_workflow_campbio/versions/2/plain-WDL/descriptor" as crwf
-import "https://api.firecloud.org/ga4gh/v1/tools/test_manifest_file:test_manifest_file/versions/62/plain-WDL/descriptor" as HTAN_meta
+import "https://api.firecloud.org/ga4gh/v1/tools/cellranger_workflow_campbio:cellranger_workflow_campbio/versions/19/plain-WDL/descriptor" as crwf
+import "https://api.firecloud.org/ga4gh/v1/tools/generate_HTAN_manifest:generate_HTAN_manifest/versions/27/plain-WDL/descriptor" as HTAN_meta
 
 workflow cellranger_sctk {
 	input {
@@ -97,7 +97,9 @@ workflow cellranger_sctk {
 		String parallel_type = "MulticoreParam"
 		String output_format = "SCE,AnnData,FlatFile,HTAN"
 		String sctk_memory = "100GB"
-		String sctk_docker = "campbio/sctk_qc:2.2.0"
+		String sctk_docker_registry = "campbio/sctk_qc"
+		String sctk_version = "2.4.1"
+		String sctk_docker = "campbio/sctk_qc:2.4.1"
 		Int sctk_disk_space = 500
 		Int preemptible = 2
 		Int manifest_num_cpu
@@ -172,14 +174,15 @@ workflow cellranger_sctk {
 			memory = sctk_memory,
 			disk_space = sctk_disk_space,
 			preemptible = preemptible,
-			sctk_docker = sctk_docker,
+			sctk_docker_registry = sctk_docker_registry,
+			sctk_version = sctk_version,
 			detectMitoLevel = detectMitoLevel,
 			mitoType = mitoType
 		}			
 	}
 
 	if (generate_HTAN_manifest) {
-		call HTAN_meta.test_HTAN_meta as HTAN_meta {
+		call HTAN_meta.generate_HTAN_meta as HTAN_meta {
 			input: 
 				cumulus_count_matrix = cellranger_workflow.count_matrix,
 				user_count_matrix = cumulus_output_csv,
@@ -205,7 +208,7 @@ task parseCSV {
 		String? cumulus_count_matrix
 		String? count_matrix_dir
 		String cumulus_outupt_dir
-		String sctk_docker = "campbio/sctk_qc:2.2.0"
+		String sctk_docker = "campbio/sctk_qc:2.4.1"
 	} 
 
 	command {
@@ -270,9 +273,11 @@ task sctkqc {
 		String Script = "/SCTK_docker/script/SCTK_runQC.R"
 		String disk_space
 		Int preemptible
-		String sctk_docker = "campbio/sctk_qc:2.2.1"
+		String sctk_docker_registry = "campbio/sctk_qc"
+		String sctk_version = "2.4.1"
 		String detectMitoLevel
 		String mitoType
+		String QCReport = "FALSE"
 	}
 
 	command {
@@ -280,7 +285,7 @@ task sctkqc {
 		gsutil -q -m cp -r ~{filterCount_directory} .
 		gsutil -q -m cp -r ~{rawCount_directory} .
 		gsutil -q -m cp ~{Script} .	
-		mkdir ./~{Sample}_QCOut
+		mkdir ./sctkQC_v~{sctk_version}
 
 		echo ${Sample}
 		echo ${output_directory}
@@ -291,28 +296,30 @@ task sctkqc {
 		-s ~{Sample} \
 		-R ./raw_feature_bc_matrix \
 		-C ./filtered_feature_bc_matrix \
-		-o ./~{Sample}_QCOut \
+		-o ./sctkQC_v~{sctk_version} \
 		-S ~{split} \
 		-d ~{AnalysisMode} \
 		-n ~{numCore} \
 		-T ~{parallelType} \
 		-F ~{outputFormat} \
 		-M ~{detectMitoLevel} \
-		-E ~{mitoType}
+		-E ~{mitoType} \
+		-Q ~{QCReport}
 		echo $(date +%T)
 		#mv ./*.html ./~{Sample}_QCOut
-		gsutil -m cp -r ./~{Sample}_QCOut ~{output_directory}
+		gsutil -m cp -r ./sctkQC_v~{sctk_version} ~{output_directory}/~{Sample}
 		echo "Done sctk-qc step"
 		echo $(date +%T)
-
+		ls ./* >> sctkQC_ls.txt
 	}
 	output {
-		File tmp = "./~{Sample}_QCOut/level3Meta.csv"
+		#File tmp = "./sctkQC_ls.txt"
+		File tmp = "./sctkQC_v~{sctk_version}/level3Meta.csv"
 		#String sctkQC_output = "~{output_directory}"
 	}
 	runtime {
 		# Use this container, pull from DockerHub   
-		docker: sctk_docker
+		docker: "~{sctk_docker_registry}:~{sctk_version}"
 		cpu: numCore
 		memory: memory
 		disks: "local-disk ~{disk_space} HDD"
